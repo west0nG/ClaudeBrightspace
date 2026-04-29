@@ -164,11 +164,23 @@ async function cmdAssignment(courseId, folderId) {
 }
 
 async function cmdDownload(courseId, folderId, fileId, outPath) {
-  if (!courseId || !folderId || !fileId || !outPath) {
-    log('Usage: bs download <courseId> <folderId> <fileId> <outPath>'); process.exitCode = 1; return;
+  if (!courseId || !folderId || !fileId) {
+    log('Usage: bs download <courseId> <folderId> <fileId> [outPath]');
+    log('       outPath defaults to ~/Downloads/<filename>');
+    process.exitCode = 1; return;
   }
   await withContext({ headless: true }, async (_, page) => {
     if (!await ensureLoggedIn(page)) { out({ error: 'session_expired', hint: 'Run: bs login' }); process.exitCode = 2; return; }
+
+    if (!outPath) {
+      // Default: look up the original filename from the assignment metadata and
+      // drop into ~/Downloads/<filename>, matching what Chrome would do.
+      const meta = await callApi(page, `/d2l/api/le/1.74/${courseId}/dropbox/folders/${folderId}`);
+      const att = (meta.body?.Attachments || []).find(a => String(a.FileId) === String(fileId));
+      const filename = att?.FileName || `attachment-${fileId}.bin`;
+      outPath = `~/Downloads/${filename}`;
+    }
+
     const r = await callApiBinary(page, `/d2l/api/le/1.74/${courseId}/dropbox/folders/${folderId}/attachments/${fileId}`);
     if (!r.ok) { out({ error: 'download_failed', status: r.status }); process.exitCode = 3; return; }
     const abs = resolve(outPath.replace(/^~/, process.env.HOME));
@@ -197,8 +209,8 @@ if (!fn) {
   status                                      Exit 0 if logged in, 1 otherwise.
   all                                         JSON: all active courses + all assignments + due dates.
   assignment <courseId> <folderId>            JSON: full assignment detail (instructions, attachments, etc).
-  download <courseId> <folderId> <fileId> <outPath>
-                                              Download attachment to outPath. Creates parent dirs.
+  download <courseId> <folderId> <fileId> [outPath]
+                                              Download attachment. outPath defaults to ~/Downloads/<filename>.
 `);
   process.exit(1);
 }

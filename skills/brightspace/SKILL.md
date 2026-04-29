@@ -41,7 +41,7 @@ interface. JSON output goes to stdout, logs and prompts to stderr.
 | `$BS status` | Headless check whether session is still valid. | `{"loggedIn":true/false}` (exit 0/1) |
 | `$BS all` | All active courses + every assignment for each course (with due dates and points). **Use this for almost everything.** | `{"courses":[...],"fetchedAt":"..."}` |
 | `$BS assignment <courseId> <folderId>` | Full detail for one assignment: instructions, attachments, submission type, points, rubric ref. | Raw D2L folder JSON |
-| `$BS download <courseId> <folderId> <fileId> <outPath>` | Saves attachment to outPath. Creates parent dirs. `~` is expanded. | `{"ok":true,"path":"...","size":N}` |
+| `$BS download <courseId> <folderId> <fileId> [outPath]` | Saves attachment. **`outPath` is optional — defaults to `~/Downloads/<filename>`** (Chrome-style). Pass an explicit path to override. Creates parent dirs. `~` is expanded. | `{"ok":true,"path":"...","size":N}` |
 
 ## Step-by-step recipe for any user query
 
@@ -71,7 +71,9 @@ Then wait. After they confirm, retry `$BS all`.
   `CustomInstructions.Text`, `Attachments[]`, `SubmissionType.Name`,
   `AllowableFileType.Name`, `Assessment.ScoreDenominator`.
 - **"下载 X 作业的附件"**: Call `$BS assignment` to find `Attachments[].FileId`,
-  then `$BS download <courseId> <folderId> <fileId> ~/Downloads/brightspace/<course>/<assignment>/<filename>`.
+  then `$BS download <courseId> <folderId> <fileId>` (drops into `~/Downloads/<filename>`).
+  Only pass an explicit outPath if the user asks for a specific location like
+  "下到我桌面" → `~/Desktop/<filename>`.
 
 ### 3. Format the reply
 
