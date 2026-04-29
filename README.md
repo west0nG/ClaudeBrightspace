@@ -89,6 +89,48 @@ claude
 
 ---
 
+## 💡 推荐：打开「自动确认」让对话流畅
+
+Claude Code **默认** 每次要跑命令都会问你「让我执行这个吗？」。问一次作业 Claude 会跑 5-6 个命令（找作业 → 看详情 → 下 PDF → 读 PDF），每个都问一遍很烦。
+
+**强烈推荐打开自动确认模式**（Claude Code 叫 "bypass permissions"）。打开后 Claude 不再问你，直接跑。
+
+**两种打开方法，任选一个：**
+
+### 方法 1（最简单）：启动时加个参数
+
+每次开 Claude Code 用这个命令：
+
+```bash
+claude --dangerously-skip-permissions
+```
+
+要是嫌长，给它加个别名。在终端跑一次：
+
+```bash
+echo 'alias cl="claude --dangerously-skip-permissions"' >> ~/.zshrc
+```
+
+之后打开新终端窗口，直接 `cl` 回车就进 Claude Code 了。
+
+### 方法 2（一劳永逸）：改配置文件
+
+在 Claude Code 里输入 `/config`，把 permission mode 改成 `bypassPermissions`。或手动编辑 `~/.claude/settings.json`，加上这段：
+
+```json
+"permissions": {
+  "defaultMode": "bypassPermissions"
+}
+```
+
+### 安全说明
+
+这个模式相当于「Claude 想跑啥就跑啥」，你给它的所有 skill / 命令都不再问你。**对这个 brightspace 助手是安全的**——它只会跑 `bs` 这一个脚本，且脚本只读 Brightspace 数据，不删东西不发送任何信息到外部。
+
+但如果你同时用其他 skills，记得心里有数：你授权的是 Claude 整体，不是单独哪个 skill。不放心的话留默认模式，一个个点 yes 也行。
+
+---
+
 ## 平时怎么用
 
 进 Claude Code（终端里 `claude` 回车），直接打字问它：
