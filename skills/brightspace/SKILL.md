@@ -66,10 +66,21 @@ Then wait. After they confirm, retry `$BS all`.
 
 - **"我有啥作业 / 这周作业 / ddl"**: Filter `assignments` by `due >= today`
   (today is in system context). Convert UTC to PT (America/Los_Angeles).
-- **"X 作业具体要交什么"**: Find the `(courseId, folderId)` from `$BS all`,
-  then call `$BS assignment <courseId> <folderId>` for full details. Read
-  `CustomInstructions.Text`, `Attachments[]`, `SubmissionType.Name`,
-  `AllowableFileType.Name`, `Assessment.ScoreDenominator`.
+- **"X 作业具体要交什么 / 怎么做 / 要求是啥"**: This is the **brief-mode**
+  question. Don't just read the short `CustomInstructions.Text` — the real
+  requirements usually live in attached PDFs (rubrics, prompts, requirements
+  docs). Workflow:
+  1. `$BS assignment <courseId> <folderId>` → get JSON
+  2. **For each item in `Attachments[]`**, run `$BS download <courseId>
+     <folderId> <fileId>` (no outPath → drops into `~/Downloads/`)
+  3. **Use the `Read` tool on each downloaded PDF/doc** to get the full text
+  4. Synthesize a plain-language answer combining `CustomInstructions.Text`
+     + PDF contents + `SubmissionType` + `Assessment.ScoreDenominator`. The
+     user wants ONE clean explanation, not a dump of raw fields.
+
+  Skip auto-download only if there are no attachments, or if the user is
+  obviously just asking for ddl/points (use brief 4-line format then).
+
 - **"下载 X 作业的附件"**: Call `$BS assignment` to find `Attachments[].FileId`,
   then `$BS download <courseId> <folderId> <fileId>` (drops into `~/Downloads/<filename>`).
   Only pass an explicit outPath if the user asks for a specific location like
