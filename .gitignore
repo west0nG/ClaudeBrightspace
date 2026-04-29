@@ -1,0 +1,4 @@
+skills/brightspace/.userdata/
+skills/brightspace/node_modules/
+skills/brightspace/package-lock.json
+.DS_Store

@@ -1,0 +1,10 @@
+{
+  "name": "brightspace-skill",
+  "version": "0.1.0",
+  "description": "USC Brightspace assistant — query assignments, deadlines, and download attachments via the D2L API",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "playwright": "^1.48.0"
+  }
+}

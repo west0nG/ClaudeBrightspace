@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -e
+SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# First-run setup: install playwright npm package (uses system Chrome, no chromium download)
+if [ ! -d "$SKILL_DIR/node_modules/playwright" ]; then
+  echo "[bs] First-run setup: installing playwright npm package (~10s)..." >&2
+  cd "$SKILL_DIR"
+  if command -v npm >/dev/null 2>&1; then
+    npm install --silent --no-audit --no-fund >&2
+  else
+    echo "[bs] ERROR: npm not found. Install Node.js: https://nodejs.org" >&2
+    exit 1
+  fi
+fi
+
+exec node "$SKILL_DIR/bs.mjs" "$@"

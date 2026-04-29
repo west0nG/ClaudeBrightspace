@@ -1,0 +1,7 @@
+{
+  "name": "brightspace",
+  "description": "USC Brightspace assistant — ask Claude about assignments, deadlines, and download attachments. Persists login across days so Duo only fires once.",
+  "author": {
+    "name": "Weston Guo"
+  }
+}

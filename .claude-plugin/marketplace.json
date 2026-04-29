@@ -1,0 +1,21 @@
+{
+  "name": "ClaudeBrightspace",
+  "owner": {
+    "name": "Weston Guo"
+  },
+  "metadata": {
+    "description": "USC Brightspace assistant for Claude Code",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "brightspace",
+      "description": "Ask Claude about USC Brightspace assignments, deadlines, and download files. One Duo login lasts days.",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/west0nG/ClaudeBrightspace.git"
+      },
+      "version": "1.0.0"
+    }
+  ]
+}
