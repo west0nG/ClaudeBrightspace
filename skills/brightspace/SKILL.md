@@ -55,11 +55,14 @@ interface. JSON output goes to stdout, logs and prompts to stderr.
 
 | Command | What it does | Output |
 |---|---|---|
-| `$BS login` | Opens visible Chrome at Brightspace. User does USC NetID + Duo. Window auto-closes when login is detected. | `{"ok":true}` |
+| `$BS login` | Opens visible Chrome. **If creds are saved, auto-fills NetID + password — user only approves Duo.** Otherwise the user fills everything manually. Window auto-closes when login is detected. | `{"ok":true}` |
 | `$BS status` | Headless check whether session is still valid. | `{"loggedIn":true/false}` (exit 0/1) |
 | `$BS all` | All active courses + every assignment for each course (with due dates and points). **Use this for almost everything.** | `{"courses":[...],"fetchedAt":"..."}` |
 | `$BS assignment <courseId> <folderId>` | Full detail for one assignment: instructions, attachments, submission type, points, rubric ref. | Raw D2L folder JSON |
 | `$BS download <courseId> <folderId> <fileId> [outPath]` | Saves attachment. **`outPath` is optional — defaults to `~/Downloads/<filename>`** (Chrome-style). Pass an explicit path to override. Creates parent dirs. `~` is expanded. | `{"ok":true,"path":"...","size":N}` |
+| `$BS creds-status` | Whether NetID + password are saved locally. | `{"hasCreds":bool,"netid":"..."}` |
+| `$BS set-creds` | Reads JSON `{"netid":"...","password":"..."}` from stdin and writes `.userdata/creds.json` (chmod 600). | `{"ok":true,"netid":"..."}` |
+| `$BS clear-creds` | Deletes saved credentials. Use if the user changes password or asks to forget. | `{"ok":true}` |
 
 ## Step-by-step recipe for any user query
 
@@ -72,19 +75,78 @@ $BS all
 This gives you ALL courses + ALL assignments in ~5 seconds. Cache it in your
 working memory for this turn — don't call `$BS all` twice in one response.
 
-**If the response is `{"error":"session_expired",...}` or `$BS all` exits non-zero**:
-Run `$BS login` (background it, since it waits for the user) and tell the user
-in their language:
+**If the response is `{"error":"session_expired",...}` or `$BS all` exits non-zero**,
+follow this branching flow:
+
+#### Step 1.1 — Check whether credentials are saved
+
+```bash
+$BS creds-status
+```
+
+#### Step 1.2a — `hasCreds: false` → ask the user once, then save
+
+Ask the user in their language for their USC NetID and password. Say what
+you'll do with them: store locally in `.userdata/creds.json` (chmod 600,
+gitignored) so future logins are automatic. Make clear that the password
+**alone cannot log in** — Duo MFA is still required, so the saved password
+on its own is not sufficient to access their account.
+
+Sample prompt:
 
 - Chinese:
-  > "Brightspace session 过期了。我开了浏览器窗口，请完成 USC NetID + Duo
-  > 推送，登录到 Brightspace 主页就好（窗口会自动关）。登好之后告诉我。"
+  > "我没有存你的 USC NetID 和密码，所以每次都要手动登。如果你愿意告诉我，
+  > 我会存到本地（`.userdata/creds.json`，权限 600，gitignore 了），以后只
+  > 需要你按 Duo 推送就行。密码本身没用——Duo MFA 是另一道关卡。
+  > 要存吗？告诉我 NetID + password 就好。"
 - English:
-  > "Your Brightspace session expired. I opened a browser window — please
-  > complete USC NetID + Duo push and land on the Brightspace home page
-  > (the window will auto-close). Let me know once you're in."
+  > "I don't have your USC NetID + password saved, so every login needs to
+  > be manual. If you share them I'll store them locally
+  > (`.userdata/creds.json`, chmod 600, gitignored) so future logins are
+  > automatic — you'd only need to approve Duo. The password alone can't
+  > log in (Duo MFA is still required). Want me to save them? Just send
+  > NetID and password."
 
-Then wait. After they confirm, retry `$BS all`.
+When the user replies with credentials, save them via stdin (do **not** put
+the password on the command line — it would land in shell history / `ps`):
+
+```bash
+$BS set-creds <<'EOF'
+{"netid":"<their NetID>","password":"<their password>"}
+EOF
+```
+
+If the user declines, skip to Step 1.3 and let them log in manually.
+
+#### Step 1.2b — `hasCreds: true` → just proceed
+
+Skip directly to Step 1.3.
+
+#### Step 1.3 — Run login (auto-fills if creds exist)
+
+Background `$BS login` (it blocks until the user finishes Duo) and tell them
+to look at the browser window:
+
+- Chinese (creds saved):
+  > "我帮你打开了登录窗口，NetID 和密码我已经自动填了。你只需要在手机上按
+  > 一下 Duo 推送就好，窗口会自动关。"
+- Chinese (no creds):
+  > "我帮你打开了登录窗口。请输入 USC NetID + 密码 + 按 Duo 推送，登好之后
+  > 窗口会自动关。"
+- English (creds saved):
+  > "I opened the login window and pre-filled your NetID + password. Just
+  > approve the Duo push on your phone — the window will auto-close."
+- English (no creds):
+  > "I opened the login window. Enter your USC NetID + password, approve
+  > Duo on your phone, and the window will auto-close."
+
+After the background `$BS login` finishes, retry `$BS all`.
+
+#### When to clear creds
+
+- The user reports that auto-login is failing repeatedly (e.g., password
+  changed at USC). Run `$BS clear-creds` and offer to save the new one.
+- The user says "forget my password" / "删掉我的密码" / similar.
 
 ### 2. Filter / format / answer
 

@@ -71,23 +71,21 @@ claude
 
 **装完之后退出再重新进 Claude Code 一次**：在 Claude Code 里输入 `/exit` 回车，然后再输 `claude` 回车进来。
 
-### 第 4 步：登录一次 USC（只这一次需要 Duo）
+### 第 4 步：第一次登录（Claude 会问你 USC NetID + 密码）
 
-进入 Claude Code 后，直接打字告诉它：
+进入 Claude Code 后，直接问它一个问题——比如：
 
-> **帮我登录 brightspace**
+> **我这周有啥 ddl**
 
-它会弹出一个 Chrome 窗口，停在 USC 红色背景的登录页。你就：
+Claude 会发现自己没存账号密码，就在对话里问你 USC NetID 和密码。直接发给它就好。
 
-1. 输入 NetID 和密码
-2. 在手机 Duo App 上点「**Approve / 批准**」
-3. 等浏览器自动跳到 Brightspace 主页（看到 "Welcome to Brightspace!" 那个页面）
+Claude 会把它们存到本地 `.userdata/creds.json`（chmod 600，gitignore，只有你自己的 Mac 账号能读，永远不上传）。然后弹出一个 Chrome 窗口，**用户名密码已经自动填好**，让你在手机上按 Duo 推送。
 
-一旦跳到主页，**那个 Chrome 窗口会自己关掉**。这就是登好了。
+手机点「**Approve**」→ 窗口自己关掉 → Claude 接着回答你最初那个问题。
 
-> 如果窗口一直不关，看一眼地址栏。如果还停在 `login.usc.edu`，说明 Duo 没批准成功，再试一次。如果地址栏已经是 `brightspace.usc.edu/d2l/home` 但窗口没关，等 5 秒，会关。
+**之后每次问 Brightspace 都直接出结果**。session 过期时（每隔几小时不操作就过期），Claude 会重新弹窗、自动填好用户名密码——你只需要按一下 Duo，密码再也不用打。
 
-完成。从现在起好几天内你都不用再登。
+> 如果有点卡：地址栏是真理。还停在 `login.usc.edu` → 密码没自动填进去（少见），手动输一下继续。已经是 `brightspace.usc.edu/d2l/home` → 你已经登好了，窗口没关也没事。
 
 ---
 
@@ -154,8 +152,13 @@ echo 'alias cl="claude --dangerously-skip-permissions"' >> ~/.zshrc
 **Q：每次都要登一次吗？**
 A：不用。第一次登完之后，cookies 存在你电脑里，能用好几天。失效了 Claude 会告诉你「Brightspace session 过期了」，那时再登一次就行。
 
-**Q：我的密码会被传到别的地方吗？**
-A：不会。所有登录都在你 Mac 上的 Chrome 里完成，密码只发给 USC 自己的服务器。Cookies 存在你电脑本地（`~/.claude/plugins/marketplaces/ClaudeBrightspace/skills/brightspace/.userdata/`），从来不上传任何地方。
+**Q：我的密码存在哪？安全吗？**
+A：密码就存在你 Mac 这一个地方：`~/.claude/plugins/marketplaces/ClaudeBrightspace/skills/brightspace/.userdata/creds.json`（chmod 600，只有你自己的账号能读，gitignore）。永远不会上传到 GitHub、Anthropic 或者任何其他地方。
+
+**唯一的代价**：第一次告诉 Claude 密码的那条消息，会经过 Anthropic 的 API（这是 Claude 读对话内容的方式）。USC 的 Duo MFA 是真正保护你的——光有密码没人能登进去，必须手机按 Duo 才行。如果你不想存，就跟 Claude 说「不要存我密码」，它就不写入文件，每次过期你自己手动输 NetID + 密码。
+
+**Q：怎么让它忘掉我的密码？**
+A：直接说「忘掉我存的 brightspace 密码」/ "forget my brightspace password"。Claude 会跑 `bs clear-creds` 把文件删掉。
 
 **Q：登录窗口一直不关怎么办？**
 A：先看地址栏是不是 `brightspace.usc.edu/d2l/home`。如果不是，回去把 Duo 走完。如果一直卡着，关掉 Claude Code 重来。

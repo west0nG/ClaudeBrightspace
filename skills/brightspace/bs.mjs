@@ -3,18 +3,46 @@
 // One-line subcommands; all query output is JSON on stdout, logs on stderr.
 
 import { chromium } from 'playwright';
-import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, writeFileSync, readFileSync, chmodSync, unlinkSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
 const SKILL_DIR = dirname(fileURLToPath(import.meta.url));
 const STATE_DIR = `${SKILL_DIR}/.userdata`;
 const STATE_FILE = `${STATE_DIR}/storageState.json`;
+const CREDS_FILE = `${STATE_DIR}/creds.json`;
 const HOME_URL = 'https://brightspace.usc.edu/d2l/home';
 const LOGIN_HOST = 'login.usc.edu';
 
 const log = (...a) => console.error('[bs]', ...a);
 const out = (obj) => console.log(JSON.stringify(obj));
+
+// ─── Credentials ──────────────────────────────────────────────
+// Stored at .userdata/creds.json (chmod 600). The skill sets these on first
+// run by asking the user, then auto-fills NetID + password on every subsequent
+// login. The user still has to approve Duo manually — credentials alone are
+// useless without it.
+
+function loadCreds() {
+  if (!existsSync(CREDS_FILE)) return null;
+  try {
+    const obj = JSON.parse(readFileSync(CREDS_FILE, 'utf8'));
+    if (obj.netid && obj.password) return obj;
+  } catch {}
+  return null;
+}
+
+function saveCreds(netid, password) {
+  if (!existsSync(STATE_DIR)) mkdirSync(STATE_DIR, { recursive: true });
+  writeFileSync(CREDS_FILE, JSON.stringify({ netid, password }, null, 2));
+  try { chmodSync(CREDS_FILE, 0o600); } catch {}
+}
+
+async function readStdin() {
+  let data = '';
+  for await (const chunk of process.stdin) data += chunk;
+  return data;
+}
 
 // Use a non-persistent browser + an explicit storageState JSON file. This
 // captures BOTH long-lived cookies and session cookies (those without an
@@ -74,14 +102,65 @@ async function callApiBinary(page, path) {
   }, path);
 }
 
+// ─── Auto-fill ────────────────────────────────────────────────
+// USC's SSO is Shibboleth-flavored (login.usc.edu) with NetID + password on
+// one page, then Duo. We try a list of selectors covering both Shibboleth and
+// Microsoft Entra layouts. If anything in this dance fails, we silently bail
+// and let the user fill manually — the browser is already visible.
+
+async function tryAutoFill(page, creds) {
+  try {
+    const userField = page.locator(
+      '#username, input[name="j_username"], input[name="loginfmt"], input[type="email"]:visible'
+    ).first();
+    await userField.waitFor({ state: 'visible', timeout: 20000 });
+    await userField.fill(creds.netid);
+
+    const passField = page.locator(
+      '#password, input[name="j_password"], input[name="passwd"], input[type="password"]:visible'
+    ).first();
+    // Same-page (Shibboleth) is the common case; if it's a two-step flow we
+    // need to click Next first.
+    const passVisible = await passField.isVisible().catch(() => false);
+    if (!passVisible) {
+      const nextBtn = page.locator(
+        '#idSIButton9, button[type="submit"], input[type="submit"]'
+      ).first();
+      await nextBtn.click().catch(() => {});
+    }
+    await passField.waitFor({ state: 'visible', timeout: 15000 });
+    await passField.fill(creds.password);
+
+    const submitBtn = page.locator(
+      'button[type="submit"], input[type="submit"], #idSIButton9, button[name="_eventId_proceed"]'
+    ).first();
+    await submitBtn.click();
+    log('NetID + password submitted. Approve the Duo push on your phone.');
+    return true;
+  } catch (e) {
+    log(`Auto-fill skipped (${e.message?.split('\n')[0] || e}). Fill manually in the open window.`);
+    return false;
+  }
+}
+
 // ─── Subcommands ──────────────────────────────────────────────
 
 async function cmdLogin() {
-  log('Opening browser. Complete USC NetID + password + Duo to reach the Brightspace homepage.');
-  log('The window will close automatically when login is detected.');
+  const creds = loadCreds();
+  if (creds) {
+    log(`Saved credentials found for NetID "${creds.netid}". Will auto-fill; you only need to approve Duo.`);
+  } else {
+    log('No saved credentials. Fill NetID + password manually, then approve Duo.');
+  }
+  log('Opening browser...');
   let success = false;
   await withContext({ headless: false }, async (ctx, page) => {
     await page.goto(HOME_URL).catch(() => {});
+    // If we already landed on Brightspace (existing valid session), skip auto-fill
+    // — there's no login form to fill, the 20s wait would just be wasted.
+    const onLogin = page.url().includes(LOGIN_HOST);
+    if (creds && onLogin) await tryAutoFill(page, creds);
+    else if (!onLogin) log('Already authenticated — skipping login form.');
     try {
       // Wait for the SAML chain to land on Brightspace (any subdomain — main host or tenant URL).
       await page.waitForURL((u) => {
@@ -190,6 +269,32 @@ async function cmdDownload(courseId, folderId, fileId, outPath) {
   });
 }
 
+async function cmdSetCreds() {
+  const raw = await readStdin();
+  let json;
+  try { json = JSON.parse(raw); }
+  catch {
+    out({ error: 'invalid_json', hint: 'Pipe JSON: {"netid":"...","password":"..."}' });
+    process.exitCode = 1; return;
+  }
+  if (!json.netid || !json.password) {
+    out({ error: 'missing_fields', hint: 'Both netid and password are required.' });
+    process.exitCode = 1; return;
+  }
+  saveCreds(String(json.netid), String(json.password));
+  out({ ok: true, netid: json.netid });
+}
+
+function cmdClearCreds() {
+  if (existsSync(CREDS_FILE)) unlinkSync(CREDS_FILE);
+  out({ ok: true });
+}
+
+function cmdCredsStatus() {
+  const creds = loadCreds();
+  out({ hasCreds: !!creds, netid: creds?.netid || null });
+}
+
 // ─── Dispatch ─────────────────────────────────────────────────
 
 const [cmd, ...args] = process.argv.slice(2);
@@ -199,18 +304,26 @@ const COMMANDS = {
   all: cmdAll,
   assignment: () => cmdAssignment(args[0], args[1]),
   download: () => cmdDownload(args[0], args[1], args[2], args[3]),
+  'set-creds': cmdSetCreds,
+  'clear-creds': cmdClearCreds,
+  'creds-status': cmdCredsStatus,
 };
 
 const fn = COMMANDS[cmd];
 if (!fn) {
-  console.error(`Usage: bs <login|status|all|assignment|download>
+  console.error(`Usage: bs <login|status|all|assignment|download|set-creds|clear-creds|creds-status>
 
-  login                                       Open browser and let user log in. Persists for ~days.
+  login                                       Open browser. Auto-fills NetID + password if creds saved;
+                                              user only approves Duo. Falls back to manual otherwise.
   status                                      Exit 0 if logged in, 1 otherwise.
   all                                         JSON: all active courses + all assignments + due dates.
   assignment <courseId> <folderId>            JSON: full assignment detail (instructions, attachments, etc).
   download <courseId> <folderId> <fileId> [outPath]
                                               Download attachment. outPath defaults to ~/Downloads/<filename>.
+  set-creds                                   Read JSON {"netid":"...","password":"..."} from stdin and
+                                              save to .userdata/creds.json (chmod 600).
+  clear-creds                                 Delete saved credentials.
+  creds-status                                JSON: {"hasCreds":bool,"netid":"..."}.
 `);
   process.exit(1);
 }

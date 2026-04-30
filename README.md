@@ -71,23 +71,21 @@ Press `Enter` to confirm again.
 
 **After it's done, exit and re-enter Claude Code once**: type `/exit` and Enter, then `claude` and Enter to come back in.
 
-### Step 4: Log into USC once (only this one time needs Duo)
+### Step 4: First login (Claude asks for your USC NetID + password)
 
-Inside Claude Code, just type to it:
+Inside Claude Code, just ask it something — for example:
 
-> **help me log into brightspace**
+> **what's due this week**
 
-It'll pop up a Chrome window stuck on the red USC login page. Now you:
+Claude will notice it doesn't have your credentials yet and ask for your USC NetID and password right in the chat. Send them.
 
-1. Enter your NetID and password
-2. On your phone's Duo app, tap **Approve**
-3. Wait for the browser to auto-redirect to the Brightspace home page (the one that says "Welcome to Brightspace!")
+Claude saves them locally to `.userdata/creds.json` (chmod 600, gitignored — only readable by your Mac account, never uploaded). Then it pops a Chrome window with NetID + password **already filled in for you**, and asks you to approve the Duo push on your phone.
 
-Once it lands on the home page, **the Chrome window closes itself**. That means you're logged in.
+Tap **Approve** in Duo → window auto-closes → Claude answers your original question.
 
-> If the window won't close, check the address bar. If it's still on `login.usc.edu`, Duo didn't go through — try again. If it's already on `brightspace.usc.edu/d2l/home` but the window hasn't closed, wait 5 seconds and it will.
+**From now on, every Brightspace question Just Works.** When the session expires (every few hours of inactivity), Claude reopens the login window with your credentials pre-filled — you only ever tap Duo, never type your password again.
 
-Done. From now on, you don't need to log in again for several days.
+> If something feels stuck: the address bar is the source of truth. If it's still on `login.usc.edu`, the password didn't submit (rare) — type it manually and continue. If it's already on `brightspace.usc.edu/d2l/home`, you're logged in even if the window hasn't closed yet.
 
 ---
 
@@ -154,8 +152,13 @@ No special commands needed. Just talk normally.
 **Q: Do I have to log in every time?**
 A: Nope. After the first login, cookies are stored locally on your Mac and last for several days. When they expire, Claude will tell you "Brightspace session expired" — log in once more then.
 
-**Q: Will my password get sent anywhere?**
-A: No. The login happens entirely in Chrome on your Mac, and your password only goes to USC's own servers. Cookies live locally on your machine (`~/.claude/plugins/marketplaces/ClaudeBrightspace/skills/brightspace/.userdata/`) and are never uploaded anywhere.
+**Q: Where is my password stored, and is it safe?**
+A: Your password lives in one place on your Mac: `~/.claude/plugins/marketplaces/ClaudeBrightspace/skills/brightspace/.userdata/creds.json` (chmod 600 — readable only by your account, gitignored). It's never uploaded to GitHub, Anthropic, or anywhere else from your machine.
+
+The one trade-off you're accepting: when you tell Claude your password the first time, that message does pass through Anthropic's API as part of the conversation (that's how Claude reads anything you type). USC's Duo MFA is what actually protects you — even with the password, no one can log in without approving Duo on your phone. If you'd rather skip saving entirely, just say "don't save my password" and Claude will leave creds.json empty; you'll type NetID + password manually each time the session expires.
+
+**Q: How do I tell it to forget my password?**
+A: Just say "forget my brightspace password" / "删掉我存的密码". Claude runs `bs clear-creds` and the file is deleted.
 
 **Q: The login window won't close. What now?**
 A: First check the address bar — is it on `brightspace.usc.edu/d2l/home`? If not, finish the Duo flow. If it's stuck, quit Claude Code and start over.
