@@ -205,30 +205,8 @@ After the background `$BS login` finishes, retry `$BS all`.
 
   Then offer to download attachments / dive deeper, in the same language.
 
-## D2L API reference (extras for future expansion)
+## Extending bs.mjs
 
-These endpoints work with the same session (you'd extend `bs.mjs` to expose them):
-
-- Announcements: `/d2l/api/le/1.74/{courseId}/news/`
-- Grades: `/d2l/api/le/1.74/{courseId}/grades/values/myGradeValues/`
-- Quizzes: `/d2l/api/le/1.74/{courseId}/quizzes/`
-- Calendar: `/d2l/api/le/1.74/{courseId}/calendar/events/myCalendarEvents/`
-- Content: `/d2l/api/le/1.74/{courseId}/content/root/`
-- Whoami: `/d2l/api/lp/1.0/users/whoami`
-
-## Trigger phrases (so the skill auto-fires)
-
-English:
-- "what's due / what assignments do I have / what do I have this week"
-- "what does <X> require / how do I submit it / how many points is it"
-- "download the <X> assignment / save the PDF / get the rubric"
-- "on Brightspace / in D2L / for my <course> class"
-
-Chinese:
-- "我有什么作业 / 这周作业 / 还有几个 ddl"
-- "X 作业是啥 / 具体怎么交 / 多少分"
-- "下载 X 作业 / 把 PDF 下到本地"
-- "Brightspace 上 / 我们 X 老师 / D2L"
-
-Other signals (any language):
-- Mentions of `brightspace.usc.edu` or USC course codes (ACAD-, WRIT-, etc.)
+The same authenticated session works for any D2L Valence endpoint. To expose
+more (grades, quizzes, calendar, etc.), copy the `cmdAssignment` pattern in
+`bs.mjs` and point at the relevant `/d2l/api/le/1.74/{courseId}/...` path.

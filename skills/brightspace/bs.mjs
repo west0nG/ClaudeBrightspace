@@ -44,10 +44,10 @@ async function readStdin() {
   return data;
 }
 
-// Use a non-persistent browser + an explicit storageState JSON file. This
-// captures BOTH long-lived cookies and session cookies (those without an
-// Expires field), which Chrome's user-data-dir does NOT persist between
-// runs. The storageState file is the only source of truth for our session.
+// Non-persistent browser + explicit storageState JSON file: captures both
+// long-lived cookies and session cookies (those without an Expires field),
+// which Chrome's user-data-dir does NOT persist between runs. The storageState
+// file is our only source of truth for the session.
 async function withContext({ headless }, fn) {
   if (!existsSync(STATE_DIR)) mkdirSync(STATE_DIR, { recursive: true });
   const browser = await chromium.launch({ channel: 'chrome', headless });
@@ -56,7 +56,7 @@ async function withContext({ headless }, fn) {
   const ctx = await browser.newContext(ctxOpts);
   try {
     const page = await ctx.newPage();
-    return await fn(ctx, page);
+    return await fn(page);
   } finally {
     await ctx.storageState({ path: STATE_FILE }).catch(() => {});
     await ctx.close().catch(() => {});
@@ -102,43 +102,18 @@ async function callApiBinary(page, path) {
   }, path);
 }
 
-// ─── Auto-fill ────────────────────────────────────────────────
-// USC's SSO is Shibboleth-flavored (login.usc.edu) with NetID + password on
-// one page, then Duo. We try a list of selectors covering both Shibboleth and
-// Microsoft Entra layouts. If anything in this dance fails, we silently bail
-// and let the user fill manually — the browser is already visible.
-
+// USC SSO is Shibboleth: NetID + password on one page, then Duo. If the form
+// shape ever changes, we bail to manual entry — the window is already visible.
 async function tryAutoFill(page, creds) {
   try {
-    const userField = page.locator(
-      '#username, input[name="j_username"], input[name="loginfmt"], input[type="email"]:visible'
-    ).first();
-    await userField.waitFor({ state: 'visible', timeout: 20000 });
-    await userField.fill(creds.netid);
-
-    const passField = page.locator(
-      '#password, input[name="j_password"], input[name="passwd"], input[type="password"]:visible'
-    ).first();
-    // Same-page (Shibboleth) is the common case; if it's a two-step flow we
-    // need to click Next first.
-    const passVisible = await passField.isVisible().catch(() => false);
-    if (!passVisible) {
-      const nextBtn = page.locator(
-        '#idSIButton9, button[type="submit"], input[type="submit"]'
-      ).first();
-      await nextBtn.click().catch(() => {});
-    }
-    await passField.waitFor({ state: 'visible', timeout: 15000 });
-    await passField.fill(creds.password);
-
-    const submitBtn = page.locator(
-      'button[type="submit"], input[type="submit"], #idSIButton9, button[name="_eventId_proceed"]'
-    ).first();
-    await submitBtn.click();
+    await page.locator('#username').waitFor({ state: 'visible', timeout: 15000 });
+    await page.locator('#username').fill(creds.netid);
+    await page.locator('#password').fill(creds.password);
+    await page.locator('button[name="_eventId_proceed"], button[type="submit"]').first().click();
     log('NetID + password submitted. Approve the Duo push on your phone.');
     return true;
   } catch (e) {
-    log(`Auto-fill skipped (${e.message?.split('\n')[0] || e}). Fill manually in the open window.`);
+    log(`Auto-fill failed (${e.message?.split('\n')[0] || e}). Fill manually in the open window.`);
     return false;
   }
 }
@@ -154,40 +129,28 @@ async function cmdLogin() {
   }
   log('Opening browser...');
   let success = false;
-  await withContext({ headless: false }, async (ctx, page) => {
+  await withContext({ headless: false }, async (page) => {
     await page.goto(HOME_URL).catch(() => {});
-    // If we already landed on Brightspace (existing valid session), skip auto-fill
-    // — there's no login form to fill, the 20s wait would just be wasted.
-    const onLogin = page.url().includes(LOGIN_HOST);
-    if (creds && onLogin) await tryAutoFill(page, creds);
-    else if (!onLogin) log('Already authenticated — skipping login form.');
-    try {
-      // Wait for the SAML chain to land on Brightspace (any subdomain — main host or tenant URL).
-      await page.waitForURL((u) => {
-        const url = u.toString();
-        return !url.includes(LOGIN_HOST) && /brightspace\.usc\.edu|tenants\.brightspace\.com/.test(url);
-      }, { timeout: 5 * 60 * 1000 });
+    if (creds && page.url().includes(LOGIN_HOST)) await tryAutoFill(page, creds);
 
-      // Force a navigation to the canonical home URL so cookies get set on brightspace.usc.edu too.
+    try {
+      // Wait up to 5 min for the SAML chain to land on Brightspace.
+      await page.waitForURL(
+        (u) => !u.toString().includes(LOGIN_HOST) && /brightspace\.usc\.edu|tenants\.brightspace\.com/.test(u.toString()),
+        { timeout: 5 * 60 * 1000 }
+      );
+      // Force-nav to the canonical home so cookies anchor on brightspace.usc.edu.
       log('Login detected — finalizing session...');
       await page.goto(HOME_URL, { waitUntil: 'domcontentloaded' }).catch(() => {});
-      await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
-
-      // Confirm by hitting the whoami API; only declare success if the API answers.
-      const whoami = await page.evaluate(async () => {
-        const r = await fetch('/d2l/api/lp/1.0/users/whoami', { credentials: 'include', headers: { Accept: 'application/json' } });
-        return r.ok ? await r.json() : null;
-      });
-      if (whoami?.Identifier) {
-        log(`Logged in as ${whoami.FirstName} ${whoami.LastName}.`);
-        // Give the cookie store time to flush to disk before we close the context.
-        await page.waitForTimeout(3000);
+      const r = await callApi(page, '/d2l/api/lp/1.0/users/whoami');
+      if (r.ok && r.body?.Identifier) {
+        log(`Logged in as ${r.body.FirstName} ${r.body.LastName}.`);
         success = true;
       } else {
         log('Reached Brightspace but whoami API did not return a user. Session may be incomplete.');
       }
-    } catch {
-      log('Timed out waiting for login (5 minutes). Aborting.');
+    } catch (e) {
+      log(`Login wait failed: ${e.message?.split('\n')[0] || e}`);
     }
   });
   out({ ok: success });
@@ -195,13 +158,13 @@ async function cmdLogin() {
 }
 
 async function cmdStatus() {
-  const ok = await withContext({ headless: true }, async (_, page) => ensureLoggedIn(page));
+  const ok = await withContext({ headless: true }, ensureLoggedIn);
   out({ loggedIn: ok });
   process.exitCode = ok ? 0 : 1;
 }
 
 async function cmdAll() {
-  await withContext({ headless: true }, async (_, page) => {
+  await withContext({ headless: true }, async (page) => {
     if (!await ensureLoggedIn(page)) { out({ error: 'session_expired', hint: 'Run: bs login' }); process.exitCode = 2; return; }
 
     const enr = await callApi(page, '/d2l/api/lp/1.0/enrollments/myenrollments/?orgUnitTypeId=3&pageSize=200');
@@ -234,7 +197,7 @@ async function cmdAll() {
 
 async function cmdAssignment(courseId, folderId) {
   if (!courseId || !folderId) { log('Usage: bs assignment <courseId> <folderId>'); process.exitCode = 1; return; }
-  await withContext({ headless: true }, async (_, page) => {
+  await withContext({ headless: true }, async (page) => {
     if (!await ensureLoggedIn(page)) { out({ error: 'session_expired', hint: 'Run: bs login' }); process.exitCode = 2; return; }
     const r = await callApi(page, `/d2l/api/le/1.74/${courseId}/dropbox/folders/${folderId}`);
     if (!r.ok) { out({ error: 'fetch_failed', status: r.status }); process.exitCode = 3; return; }
@@ -248,7 +211,7 @@ async function cmdDownload(courseId, folderId, fileId, outPath) {
     log('       outPath defaults to ~/Downloads/<filename>');
     process.exitCode = 1; return;
   }
-  await withContext({ headless: true }, async (_, page) => {
+  await withContext({ headless: true }, async (page) => {
     if (!await ensureLoggedIn(page)) { out({ error: 'session_expired', hint: 'Run: bs login' }); process.exitCode = 2; return; }
 
     if (!outPath) {
@@ -328,4 +291,4 @@ if (!fn) {
   process.exit(1);
 }
 
-await (fn.length ? fn() : fn());
+await fn();
